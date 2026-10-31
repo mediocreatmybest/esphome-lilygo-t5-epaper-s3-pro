@@ -31,6 +31,12 @@ def run_cpp(source):
         subprocess.run([str(exe)],check=True)
 
 class DriverTests(unittest.TestCase):
+    def test_lora_power_preserves_outputs_and_handles_i2c_failures(self):
+        methods = [method(DRIVER, s) for s in (
+            'void setup_lora_power_()', 'static bool r8_', 'static bool w8_')]
+        fixture = (ROOT/'tests/lora_power_test.cpp').read_text()
+        run_cpp(fixture.replace('// INJECT_METHODS', '\n'.join(methods)))
+
     def test_checked_recovery_and_manual_deghost(self):
         methods = [method(DRIVER, s) for s in (
             'void update() override', 'void clean_screen()', 'void deep_clean()',

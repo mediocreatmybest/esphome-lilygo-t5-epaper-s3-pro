@@ -1,0 +1,47 @@
+# Optional receive-only variant; the existing dashboard is unchanged.
+packages:
+  base: !include example.yaml
+
+# Use this checkout's optional power control instead of the base example's upstream source.
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [t5_epaper]
+
+display:
+  - id: !extend epd
+    lora_enabled: true
+
+spi:
+  id: lora_spi
+  clk_pin: GPIO14
+  mosi_pin: GPIO13
+  miso_pin: GPIO21
+
+sx126x:
+  id: lora_radio
+  spi_id: lora_spi
+  hw_version: sx1262
+  cs_pin: GPIO46
+  dio1_pin: GPIO10
+  rst_pin: GPIO1
+  busy_pin: GPIO47
+  rf_switch: true
+  tcxo_voltage: 2_4V
+  modulation: LORA
+  # Match the sender and your board's frequency variant. These match LilyGO's lora_recv.
+  frequency: 868MHz
+  bandwidth: 250_0kHz
+  spreading_factor: 10
+  coding_rate: CR_4_6
+  sync_value: [0xA4, 0xB4]  # RadioLib's 0xAB sync word in SX1262 register format
+  preamble_size: 15
+  crc_enable: false
+  rx_start: true
+  on_packet:
+    then:
+      - lambda: |-
+          ESP_LOGI("lora", "RX %u bytes RSSI %.1f dBm SNR %.1f dB: %s",
+                   static_cast<unsigned>(x.size()), rssi, snr,
+                   format_hex_pretty(x).c_str());

@@ -21,6 +21,10 @@ namespace t5_epaper {
 // loop()/update() run sequentially on one task, so shared-bus access never overlaps.
 class T5Display : public display::Display {
  public:
+  // Preserve the display's default priority (600), before native sx126x's PROCESSOR (400).
+  float get_setup_priority() const override { return setup_priority::DATA; }
+  void set_lora_enabled(bool enabled) { this->lora_enabled_ = enabled; }
+
   void setup() override {
     // 1) our shared I2C bus on the config pins (39/40)
     i2c_master_bus_config_t bc = {};
@@ -92,12 +96,13 @@ class T5Display : public display::Display {
       ESP_LOGW("t5_epaper", "Boot display power-off failed");
     epd_hl_set_all_white(&this->hl_);
 
-    // our own read handle on the PCA9555 (0x20) to confirm EPD power-good before each push
+    // Shared PCA9555 (0x20): LoRa power on port 0, EPD power-good on port 1.
     i2c_device_config_t pc = {};
     pc.dev_addr_length = I2C_ADDR_BIT_LEN_7;
     pc.scl_speed_hz = 400000;
     pc.device_address = 0x20;
     i2c_master_bus_add_device(this->bus_, &pc, &this->pca_);
+    this->setup_lora_power_();
 
     // GT911 touch: RST shares epdiy's D8 line + INT floats, so the latched address (0x5D or 0x14)
     // varies across reboots (e.g. the RST button). Probe both and use whichever answers.
@@ -362,6 +367,27 @@ class T5Display : public display::Display {
     i2c_master_transmit(this->gt911_, w, 3, 50);
   }
 
+  void setup_lora_power_() {
+    if (this->lora_enabled_) {
+      // LilyGO requires LoRa and SD deselected BEFORE enabling LoRa/GPS power.
+      gpio_set_level((gpio_num_t) 46, 1);  // LoRa CS
+      gpio_set_direction((gpio_num_t) 46, GPIO_MODE_OUTPUT);
+      gpio_set_level((gpio_num_t) 12, 1);  // SD CS
+      gpio_set_direction((gpio_num_t) 12, GPIO_MODE_OUTPUT);
+    }
+    uint8_t output, config;
+    // Read output LATCH (not input pins); preserve every bit except port 0 bit 0.
+    // Set the latch before switching to output, avoiding a power-on glitch when disabled.
+    if (!r8_(this->pca_, 0x02, &output) || !r8_(this->pca_, 0x06, &config) ||
+        !w8_(this->pca_, 0x02, (output & 0xFE) | (this->lora_enabled_ ? 1 : 0)) ||
+        !w8_(this->pca_, 0x06, config & 0xFE)) {
+      ESP_LOGW("t5_epaper", "LoRa power setup failed; requested state not confirmed");
+      return;  // Optional radio failure must not mark the display failed or retry forever.
+    }
+    if (this->lora_enabled_)
+      vTaskDelay(pdMS_TO_TICKS(1500));  // LilyGO's rail settling time, before sx126x setup.
+  }
+
   // PCA9555 port-1 bit6 (PC16). Unknown power must prevent drawing; retries recover it.
   bool epd_powergood_() {
     if (this->pca_ == nullptr)
@@ -462,7 +488,8 @@ class T5Display : public display::Display {
   // charger/gauge
   i2c_master_dev_handle_t bq_charger_{nullptr};
   i2c_master_dev_handle_t bq_gauge_{nullptr};
-  i2c_master_dev_handle_t pca_{nullptr};   // PCA9555 0x20, read PWRGOOD before each EPD push
+  i2c_master_dev_handle_t pca_{nullptr};   // PCA9555 0x20, LoRa enable + EPD PWRGOOD
+  bool lora_enabled_{false};
   bool last_push_succeeded_{false};
   bool clean_requested_{false}, deep_clean_requested_{false}, retry_pending_{false};
   uint32_t retry_due_{0}, retry_attempts_{0}, pushes_since_clean_{0};

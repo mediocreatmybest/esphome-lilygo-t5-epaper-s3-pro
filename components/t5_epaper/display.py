@@ -11,6 +11,7 @@ CONF_VCOM = "vcom"
 CONF_PANEL_ROTATION = "panel_rotation"
 CONF_DEFAULT_CHARGE_CAP = "default_charge_cap"
 CONF_HOME_BUTTON_DEBOUNCE = "home_button_debounce"
+CONF_LORA_ENABLED = "lora_enabled"
 
 # Retains checked/bounded V7 power transitions (#481) and the upstream pointer-array
 # allocation fix (#488), on the shared-I2C / IDF 5.5-compatible baseline.
@@ -46,6 +47,7 @@ CONFIG_SCHEMA = display.FULL_DISPLAY_SCHEMA.extend(
         # Software charge-voltage cap (%). 100 = charge to full; lower it (e.g. 80) for an
         # always-on/charger install to reduce LiPo calendar wear. Also settable at runtime.
         cv.Optional(CONF_DEFAULT_CHARGE_CAP, default=100): cv.int_range(min=60, max=100),
+        cv.Optional(CONF_LORA_ENABLED, default=False): cv.boolean,
     }
 ).extend(cv.polling_component_schema("60s"))
 
@@ -60,6 +62,7 @@ async def to_code(config):
     cg.add(var.set_vcom(config[CONF_VCOM]))
     cg.add(var.set_panel_rotation(cg.RawExpression(ROTATIONS[config[CONF_PANEL_ROTATION]])))
     cg.add(var.set_default_charge_cap(config[CONF_DEFAULT_CHARGE_CAP]))
+    cg.add(var.set_lora_enabled(config[CONF_LORA_ENABLED]))
     # register_display/setup_display_core_ handles pages/rotation/auto_clear but NOT the
     # top-level lambda — the platform must wire it to the writer itself, or the screen stays blank.
     if CONF_LAMBDA in config:
